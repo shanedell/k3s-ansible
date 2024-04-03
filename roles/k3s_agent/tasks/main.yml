@@ -10,6 +10,18 @@
   ansible.builtin.set_fact:
     installed_k3s_version: "{{ k3s_version_output.stdout_lines[0].split(' ')[2] }}"
 
+- name: Get docker installed version
+  ansible.builtin.command: docker --version
+  register: docker_version_output
+  changed_when: false
+  ignore_errors: true
+  when: use_docker_runtime
+
+- name: Set docker installed version
+  when: use_docker_runtime and docker_version_output.rc == 0
+  ansible.builtin.set_fact:
+    installed_docker_version: "{{ docker_version_output.stdout_lines[0].split(' ')[2] }}"
+
 # If airgapped, all K3s artifacts are already on the node.
 # We should be downloading and installing the newer version only if we are in one of the following cases :
 #   - we couldn't get k3s installed version in the first task of this role
@@ -26,7 +38,7 @@
         group: root
         mode: "0755"
 
-    - name: Download K3s binary
+    - name: Run K3S Install
       ansible.builtin.command:
         cmd: /usr/local/bin/k3s-install.sh
       environment:
@@ -67,6 +79,24 @@
     line: "{{ item }}"
   with_items:
     - "K3S_TOKEN={{ token }}"
+
+- name: Download docker artifact only if needed
+  when: use_docker_runtime and docker_version_output.rc != 0 and airgap_dir is undefined
+  block:
+    - name: Download docker install script
+      ansible.builtin.get_url:
+        # don't use the docker provided script https://get.docker.com as it doesn't seem to work well with k3s
+        url: https://releases.rancher.com/install-docker/20.10.sh
+        timeout: 120
+        dest: /usr/local/bin/install-docker.sh
+        owner: root
+        group: root
+        mode: 0755
+
+    - name: Run docker install script
+      ansible.builtin.command:
+        cmd: /usr/local/bin/install-docker.sh
+      changed_when: true
 
 - name: Copy K3s service file
   register: k3s_agent_service

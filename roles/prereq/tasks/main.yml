@@ -8,8 +8,9 @@
 - name: Install Dependent Ubuntu Packages
   when: ansible_distribution in ['Ubuntu']
   ansible.builtin.apt:
-    name: policycoreutils  # Used by install script to restore SELinux context
-    update_cache: true
+    name:
+      - policycoreutils  # Used by install script to restore SELinux context
+      - wireguard
 
 - name: Enable IPv4 forwarding
   ansible.posix.sysctl:
@@ -39,6 +40,14 @@
         cmd: ufw status
       changed_when: false
       register: ufw_status
+
+    - name: If ufw enabled, open dns port
+      when:
+        - ufw_status['stdout'] == "Status':' active"
+      community.general.ufw:
+        rule: allow
+        port: "53"
+        proto: "udp"
 
     - name: If ufw enabled, open api port
       when:
@@ -70,6 +79,14 @@
     - ansible_facts.services['firewalld.service'] is defined
     - ansible_facts.services['firewalld.service'].state == 'running'
   block:
+    - name: If firewalld enabled, open dns port
+      ansible.posix.firewalld:
+        port: "53/udp"
+        zone: internal
+        state: enabled
+        permanent: true
+        immediate: true
+
     - name: If firewalld enabled, open api port
       ansible.posix.firewalld:
         port: "{{ api_port }}/tcp"
